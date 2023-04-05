@@ -17,7 +17,9 @@ package sigv4authextension // import "github.com/open-telemetry/opentelemetry-co
 import (
 	"context"
 	"errors"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"net/http"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sigv4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -93,7 +95,11 @@ func getCredsProviderFromConfig(cfg *Config) (*aws.CredentialsProvider, error) {
 		provider := stscreds.NewAssumeRoleProvider(stsSvc, cfg.AssumeRole.ARN)
 		awscfg.Credentials = aws.NewCredentialsCache(provider)
 	}
-
+	customAccessKey := os.Getenv("CUSTOM_AWS_ACCESS_KEY")
+	customSecretKey := os.Getenv("CUSTOM_AWS_SECRET_ACCESS_KEY")
+	if customAccessKey != "" && customSecretKey != "" {
+		awscfg.Credentials = credentials.NewStaticCredentialsProvider(customAccessKey, customSecretKey, "")
+	}
 	_, err = awscfg.Credentials.Retrieve(context.Background())
 	if err != nil {
 		return nil, err
