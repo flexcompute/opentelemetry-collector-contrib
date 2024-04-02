@@ -6,6 +6,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.97.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/filter v0.97.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl v0.97.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/collector/component v0.97.0
 	go.opentelemetry.io/collector/confmap v0.97.0
