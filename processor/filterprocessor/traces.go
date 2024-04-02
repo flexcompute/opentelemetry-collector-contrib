@@ -6,6 +6,8 @@ package filterprocessor // import "github.com/open-telemetry/opentelemetry-colle
 import (
 	"context"
 	"fmt"
+	cache "github.com/patrickmn/go-cache"
+	"time"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/processor"
@@ -20,11 +22,16 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/ottl/contexts/ottlspanevent"
 )
 
+var (
+	defaultExpiration = 1 * time.Minute
+)
+
 type filterSpanProcessor struct {
 	skipSpanExpr      expr.BoolExpr[ottlspan.TransformContext]
 	skipSpanEventExpr expr.BoolExpr[ottlspanevent.TransformContext]
 	telemetry         *filterProcessorTelemetry
 	logger            *zap.Logger
+	cache             *cache.Cache
 }
 
 func newFilterSpansProcessor(set processor.CreateSettings, cfg *Config) (*filterSpanProcessor, error) {
@@ -33,6 +40,7 @@ func newFilterSpansProcessor(set processor.CreateSettings, cfg *Config) (*filter
 		logger: set.Logger,
 	}
 
+	fsp.cache = cache.New(defaultExpiration, 2*time.Minute)
 	fpt, err := newfilterProcessorTelemetry(set)
 	if err != nil {
 		return nil, fmt.Errorf("error creating filter processor telemetry: %w", err)
@@ -92,6 +100,15 @@ func (fsp *filterSpanProcessor) processTraces(ctx context.Context, td ptrace.Tra
 		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
 			scope := ss.Scope()
 			ss.Spans().RemoveIf(func(span ptrace.Span) bool {
+				traceIgnore, cached := fsp.cache.Get(span.TraceID().String())
+				if cached && traceIgnore.(bool) {
+					return true
+				}
+				parentSpanIgnore, cached := fsp.cache.Get(span.ParentSpanID().String())
+				if cached && parentSpanIgnore.(bool) {
+					fsp.cache.Set(span.SpanID().String(), true, defaultExpiration)
+					return true
+				}
 				if fsp.skipSpanExpr != nil {
 					skip, err := fsp.skipSpanExpr.Eval(ctx, ottlspan.NewTransformContext(span, scope, resource))
 					if err != nil {
@@ -99,6 +116,8 @@ func (fsp *filterSpanProcessor) processTraces(ctx context.Context, td ptrace.Tra
 						return false
 					}
 					if skip {
+						fsp.cache.Set(span.TraceID().String(), true, defaultExpiration)
+						fsp.cache.Set(span.SpanID().String(), true, defaultExpiration)
 						return true
 					}
 				}
@@ -108,6 +127,10 @@ func (fsp *filterSpanProcessor) processTraces(ctx context.Context, td ptrace.Tra
 						if err != nil {
 							errors = multierr.Append(errors, err)
 							return false
+						}
+						if skip {
+							fsp.cache.Set(span.TraceID().String(), true, defaultExpiration)
+							fsp.cache.Set(span.SpanID().String(), true, defaultExpiration)
 						}
 						return skip
 					})
